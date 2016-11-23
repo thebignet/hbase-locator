@@ -11,6 +11,8 @@ import org.springframework.web.bind.annotation.RestController;
 
 import java.io.IOException;
 import java.util.Collection;
+import java.util.Collections;
+import java.util.stream.Collectors;
 
 @RestController
 public class MainController {
@@ -18,7 +20,7 @@ public class MainController {
     private Logger logger = LoggerFactory.getLogger(MainController.class);
 
     @RequestMapping("/createTable")
-    public String createTable(){
+    public String createTable() {
         Configuration config = HBaseConfiguration.create();
         try {
             HBaseAdmin admin = new HBaseAdmin(config);
@@ -33,8 +35,9 @@ public class MainController {
             return "KO";
         }
     }
+
     @RequestMapping("/listTableTest")
-    public String listTable(){
+    public String listTable() {
         Configuration config = HBaseConfiguration.create();
         try {
             HBaseAdmin admin = new HBaseAdmin(config);
@@ -43,7 +46,7 @@ public class MainController {
             ResultScanner scanner = table.getScanner(scan);
             for (Result result : scanner) {
                 String id = new String(result.getRow());
-                logger.info("id = "+id);
+                logger.info("id = " + id);
             }
 
             return "OK";
@@ -53,23 +56,32 @@ public class MainController {
         }
     }
 
+    private class RegionDataLocality {
+        public String regionName;
+        public Float dataLocality;
+
+        public RegionDataLocality(String regionName, Float dataLocality) {
+            this.regionName = regionName;
+            this.dataLocality = dataLocality;
+        }
+
+    }
+
     @RequestMapping("/admin")
-    public String admin(){
-        try {
-            Connection connection = ConnectionFactory.createConnection();
+    public Collection<RegionDataLocality> admin() {
+        try (Connection connection = ConnectionFactory.createConnection()) {
             Admin admin = connection.getAdmin();
             ClusterStatus clusterStatus = admin.getClusterStatus();
-            Collection<ServerName> servers = clusterStatus.getServers();
-            for (ServerName server : servers) {
-                logger.info("getting region load for "+server.getHostAndPort());
-                Collection<RegionLoad> regionLoads = clusterStatus.getLoad(server).getRegionsLoad().values();
-                regionLoads.forEach(regionLoad -> logger.info("load of "+regionLoad.getNameAsString()+" : "+regionLoad.getDataLocality()));
-            }
-
-            return "OK";
+            return clusterStatus.getServers().stream()
+                    .flatMap(server -> {
+                        Collection<RegionLoad> regionLoads = clusterStatus.getLoad(server).getRegionsLoad().values();
+                        return regionLoads.stream()
+                                .map(regionLoad -> new RegionDataLocality(regionLoad.getNameAsString(), regionLoad.getDataLocality()));
+                    })
+                    .collect(Collectors.toList());
         } catch (IOException e) {
             e.printStackTrace();
-            return "KO";
+            return Collections.emptyList();
         }
     }
 }
